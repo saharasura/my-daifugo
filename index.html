@@ -57,7 +57,6 @@
       const [selectedCards, setSelectedCards] = useState([]);
       const [message, setMessage] = useState('');
       const [copied, setCopied] = useState(false);
-      const [listeners, setListeners] = useState([]);
 
       const SUITS = {
         hearts: { symbol: '♥', color: 'text-red-500' },
@@ -69,6 +68,42 @@
       const RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
       
       const getRankValue = (rank) => RANKS.indexOf(rank);
+
+      // localStorageから保存データを読み込み
+      const loadFromStorage = () => {
+        try {
+          const savedPlayerId = localStorage.getItem('daifugo_playerId');
+          const savedPlayerName = localStorage.getItem('daifugo_playerName');
+          const savedRoomId = localStorage.getItem('daifugo_roomId');
+          
+          return { savedPlayerId, savedPlayerName, savedRoomId };
+        } catch (error) {
+          console.error('localStorage読み込みエラー:', error);
+          return { savedPlayerId: null, savedPlayerName: null, savedRoomId: null };
+        }
+      };
+
+      // localStorageに保存
+      const saveToStorage = (pid, pname, rid) => {
+        try {
+          if (pid) localStorage.setItem('daifugo_playerId', pid);
+          if (pname) localStorage.setItem('daifugo_playerName', pname);
+          if (rid) localStorage.setItem('daifugo_roomId', rid);
+        } catch (error) {
+          console.error('localStorage保存エラー:', error);
+        }
+      };
+
+      // localStorageをクリア
+      const clearStorage = () => {
+        try {
+          localStorage.removeItem('daifugo_playerId');
+          localStorage.removeItem('daifugo_playerName');
+          localStorage.removeItem('daifugo_roomId');
+        } catch (error) {
+          console.error('localStorageクリアエラー:', error);
+        }
+      };
 
       // Firebase初期化
       useEffect(() => {
@@ -92,9 +127,22 @@
           const db = firebase.database();
           setDatabase(db);
 
-          // プレイヤーID生成
-          const id = 'player_' + Math.random().toString(36).substr(2, 9);
-          setPlayerId(id);
+          // localStorageから復元を試みる
+          const { savedPlayerId, savedPlayerName, savedRoomId } = loadFromStorage();
+          
+          if (savedPlayerId && savedPlayerName && savedRoomId) {
+            // 保存されたデータがある場合は復元
+            setPlayerId(savedPlayerId);
+            setPlayerName(savedPlayerName);
+            setRoomId(savedRoomId);
+            setGameState('waiting'); // 一旦待機画面に
+            console.log('localStorageから復元:', savedPlayerId, savedPlayerName, savedRoomId);
+          } else {
+            // 新規プレイヤーID生成
+            const id = 'player_' + Math.random().toString(36).substr(2, 9);
+            setPlayerId(id);
+            console.log('新規プレイヤーID生成:', id);
+          }
           
           console.log('Firebase初期化成功');
         } catch (error) {
@@ -107,27 +155,50 @@
       useEffect(() => {
         if (!database || !roomId || !playerId) return;
 
+        console.log('ルームリスニング開始:', roomId);
         const roomRef = database.ref('rooms/' + roomId);
         
         const listener = roomRef.on('value', (snapshot) => {
           const data = snapshot.val();
-          if (data) {
-            setGameData(data);
-            
-            const index = data.players.findIndex(p => p.id === playerId);
-            setMyPlayerIndex(index);
+          
+          if (!data) {
+            console.log('ルームが存在しません');
+            setMessage('⚠️ ルームが削除されました');
+            clearStorage();
+            setRoomId('');
+            setGameData(null);
+            setMyPlayerIndex(-1);
+            setGameState('lobby');
+            return;
+          }
 
-            if (data.winner) {
-              setGameState('gameover');
-            } else if (data.gameStarted) {
-              setGameState('playing');
-            } else {
-              setGameState('waiting');
-            }
+          console.log('ゲームデータ更新:', data);
+          setGameData(data);
+          
+          const index = data.players ? data.players.findIndex(p => p && p.id === playerId) : -1;
+          setMyPlayerIndex(index);
+          
+          if (index === -1) {
+            console.log('自分がプレイヤーリストにいません');
+            setMessage('⚠️ ルームから切断されました');
+            clearStorage();
+            setRoomId('');
+            setGameData(null);
+            setGameState('lobby');
+            return;
+          }
+
+          if (data.winner) {
+            setGameState('gameover');
+          } else if (data.gameStarted) {
+            setGameState('playing');
+          } else {
+            setGameState('waiting');
           }
         });
 
         return () => {
+          console.log('ルームリスニング解除');
           roomRef.off('value', listener);
         };
       }, [database, roomId, playerId]);
@@ -182,6 +253,10 @@
           };
 
           await newRoomRef.set(initialData);
+          
+          // localStorageに保存
+          saveToStorage(playerId, name, newRoomId);
+          
           setRoomId(newRoomId);
           setPlayerName(name);
           setGameState('waiting');
@@ -228,7 +303,7 @@
             return;
           }
 
-          if (roomData.players.length >= 4) {
+          if (roomData.players && roomData.players.length >= 4) {
             setMessage('❌ ルームが満員です');
             return;
           }
@@ -241,9 +316,13 @@
           };
 
           const updates = {};
-          updates['players/' + roomData.players.length] = newPlayer;
+          const playerCount = roomData.players ? roomData.players.length : 0;
+          updates['players/' + playerCount] = newPlayer;
           
           await roomRef.update(updates);
+
+          // localStorageに保存
+          saveToStorage(playerId, name, roomIdInput);
 
           setRoomId(roomIdInput);
           setPlayerName(name);
@@ -257,31 +336,43 @@
       };
 
       const startGame = async () => {
-        if (!database || !roomId || !gameData) return;
-        
-        if (gameData.players.length < 2) {
+        if (!database || !roomId || !gameData) {
+          console.error('ゲーム開始: 必要なデータがありません', { database, roomId, gameData });
+          setMessage('❌ データの準備ができていません');
+          return;
+        }
+
+        if (!gameData.players || gameData.players.length < 2) {
           setMessage('❌ 最低2人必要です');
           return;
         }
 
         try {
+          console.log('ゲーム開始処理開始');
           const deck = createAndShuffleDeck();
           const playerCount = gameData.players.length;
           const playerHands = Array(playerCount).fill(null).map(() => []);
           
+          // カードを配る
           deck.forEach((card, index) => {
             playerHands[index % playerCount].push(card);
           });
 
+          // 各プレイヤーの手札をソート
           playerHands.forEach(hand => {
             hand.sort((a, b) => getRankValue(a.rank) - getRankValue(b.rank));
           });
 
           const updates = {};
-          gameData.players.forEach((player, index) => {
-            updates['players/' + index + '/hand'] = playerHands[index];
-            updates['players/' + index + '/hasPassed'] = false;
-          });
+          
+          // 各プレイヤーの手札を更新
+          for (let i = 0; i < gameData.players.length; i++) {
+            if (gameData.players[i]) {
+              updates['players/' + i + '/hand'] = playerHands[i];
+              updates['players/' + i + '/hasPassed'] = false;
+            }
+          }
+          
           updates['gameStarted'] = true;
           updates['currentPlayerIndex'] = 0;
           updates['fieldCards'] = [];
@@ -289,7 +380,9 @@
           updates['passCount'] = 0;
           updates['winner'] = null;
 
+          console.log('Firebase更新中...', updates);
           await database.ref('rooms/' + roomId).update(updates);
+          
           setMessage('');
           console.log('ゲーム開始成功');
         } catch (error) {
@@ -311,11 +404,13 @@
         if (gameData.currentPlayerIndex !== myPlayerIndex) return false;
         if (selectedCards.length > 1) return false;
         
-        const myHand = gameData.players[myPlayerIndex].hand;
+        const myHand = gameData.players[myPlayerIndex]?.hand;
+        if (!myHand) return false;
+        
         const selectedCard = myHand.find(c => c.id === selectedCards[0]);
         
         if (!selectedCard) return false;
-        if (gameData.fieldCards.length === 0) return true;
+        if (!gameData.fieldCards || gameData.fieldCards.length === 0) return true;
         
         const lastCard = gameData.fieldCards[gameData.fieldCards.length - 1];
         return getRankValue(selectedCard.rank) > getRankValue(lastCard.rank);
@@ -403,6 +498,9 @@
         try {
           await database.ref('rooms/' + roomId).remove();
           
+          // localStorageクリア
+          clearStorage();
+          
           setRoomId('');
           setGameData(null);
           setMyPlayerIndex(-1);
@@ -420,7 +518,11 @@
       };
 
       const Card = ({ card, isSelected, onClick, size = 'normal' }) => {
+        if (!card) return null;
+        
         const suitInfo = SUITS[card.suit];
+        if (!suitInfo) return null;
+        
         const sizeClasses = size === 'small' 
           ? 'w-12 h-16 text-xs' 
           : 'w-16 h-24 text-base';
@@ -442,8 +544,9 @@
         );
       };
 
-      const currentPlayer = gameData?.players[gameData.currentPlayerIndex];
-      const myPlayer = myPlayerIndex >= 0 ? gameData?.players[myPlayerIndex] : null;
+      // 安全にデータを取得
+      const currentPlayer = gameData?.players?.[gameData.currentPlayerIndex];
+      const myPlayer = (myPlayerIndex >= 0 && gameData?.players) ? gameData.players[myPlayerIndex] : null;
       const isMyTurn = gameData?.currentPlayerIndex === myPlayerIndex;
 
       return (
@@ -560,43 +663,47 @@
                 </p>
               </div>
 
-              <div className="mb-6">
-                <h3 className="font-bold text-gray-700 mb-3">
-                  参加者 ({gameData.players.length}/4)
-                </h3>
-                <div className="space-y-2">
-                  {gameData.players.map((player, index) => (
-                    <div
-                      key={player.id}
-                      className={`p-3 rounded-lg border-2 ${
-                        player.id === playerId
-                          ? 'bg-green-50 border-green-300'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold">
-                          {player.name}
-                          {player.id === playerId && ' (あなた)'}
-                        </span>
-                        {index === 0 && (
-                          <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
-                            ホスト
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+              {gameData.players && (
+                <div className="mb-6">
+                  <h3 className="font-bold text-gray-700 mb-3">
+                    参加者 ({gameData.players.length}/4)
+                  </h3>
+                  <div className="space-y-2">
+                    {gameData.players.map((player, index) => (
+                      player && (
+                        <div
+                          key={player.id || index}
+                          className={`p-3 rounded-lg border-2 ${
+                            player.id === playerId
+                              ? 'bg-green-50 border-green-300'
+                              : 'bg-gray-50 border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold">
+                              {player.name}
+                              {player.id === playerId && ' (あなた)'}
+                            </span>
+                            {index === 0 && (
+                              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+                                ホスト
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="space-y-3">
                 {myPlayerIndex === 0 && (
                   <button
                     onClick={startGame}
-                    disabled={gameData.players.length < 2}
+                    disabled={!gameData.players || gameData.players.length < 2}
                     className={`w-full py-4 rounded-xl text-lg font-bold transition-all shadow-lg
-                      ${gameData.players.length >= 2
+                      ${gameData.players && gameData.players.length >= 2
                         ? 'bg-green-600 text-white hover:bg-green-700 active:scale-95'
                         : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
                   >
@@ -622,16 +729,16 @@
                 <div className="flex justify-between items-center mb-2">
                   <div>
                     <h2 className="text-xl font-bold text-green-800">
-                      {myPlayer.name}
+                      {myPlayer.name || 'あなた'}
                     </h2>
                     <p className="text-sm text-gray-600">
-                      残り: {myPlayer.hand.length}枚
+                      残り: {myPlayer.hand ? myPlayer.hand.length : 0}枚
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-gray-600">現在のターン</p>
                     <p className={`text-lg font-bold ${isMyTurn ? 'text-green-600' : 'text-gray-600'}`}>
-                      {currentPlayer?.name}
+                      {currentPlayer?.name || '...'}
                       {isMyTurn && ' 🎯'}
                     </p>
                   </div>
@@ -653,7 +760,7 @@
               <div className="bg-white/90 rounded-xl p-4 mb-4 shadow-lg">
                 <h3 className="text-sm font-bold text-gray-700 mb-2">場のカード</h3>
                 <div className="min-h-24 flex items-center justify-center">
-                  {gameData.fieldCards.length > 0 ? (
+                  {gameData.fieldCards && gameData.fieldCards.length > 0 ? (
                     <Card card={gameData.fieldCards[0]} />
                   ) : (
                     <p className="text-gray-400">カードなし</p>
@@ -675,14 +782,18 @@
                 
                 {showHand ? (
                   <div className="flex flex-wrap gap-2 justify-center">
-                    {myPlayer.hand.map(card => (
-                      <Card
-                        key={card.id}
-                        card={card}
-                        isSelected={selectedCards.includes(card.id)}
-                        onClick={isMyTurn ? () => toggleCardSelection(card.id) : undefined}
-                      />
-                    ))}
+                    {myPlayer.hand && myPlayer.hand.length > 0 ? (
+                      myPlayer.hand.map(card => (
+                        <Card
+                          key={card.id}
+                          card={card}
+                          isSelected={selectedCards.includes(card.id)}
+                          onClick={isMyTurn ? () => toggleCardSelection(card.id) : undefined}
+                        />
+                      ))
+                    ) : (
+                      <p className="text-gray-400">手札がありません</p>
+                    )}
                   </div>
                 ) : (
                   <div className="h-24 flex items-center justify-center text-gray-400">
@@ -714,23 +825,25 @@
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 mb-4">
-                {gameData.players.map((player, index) => (
-                  player.id !== playerId && (
-                    <div
-                      key={player.id}
-                      className={`bg-white/80 rounded-lg p-3 text-center text-sm border-2
-                        ${index === gameData.currentPlayerIndex ? 'border-green-400' : 'border-transparent'}`}
-                    >
-                      <div className="font-bold">{player.name}</div>
-                      <div className="text-gray-600">
-                        {player.hand.length}枚
-                        {player.hasPassed && ' (パス)'}
+              {gameData.players && (
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  {gameData.players.map((player, index) => (
+                    player && player.id !== playerId && (
+                      <div
+                        key={player.id || index}
+                        className={`bg-white/80 rounded-lg p-3 text-center text-sm border-2
+                          ${index === gameData.currentPlayerIndex ? 'border-green-400' : 'border-transparent'}`}
+                      >
+                        <div className="font-bold">{player.name}</div>
+                        <div className="text-gray-600">
+                          {player.hand ? player.hand.length : 0}枚
+                          {player.hasPassed && ' (パス)'}
+                        </div>
                       </div>
-                    </div>
-                  )
-                ))}
-              </div>
+                    )
+                  ))}
+                </div>
+              )}
 
               <button
                 onClick={leaveRoom}
