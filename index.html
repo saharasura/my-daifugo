@@ -5,10 +5,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>オンライン大富豪</title>
+
+  <!-- Firebase Compatibility SDK -->
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+  <!-- React -->
+
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel -->
+
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Tailwind CSS -->
+
   <script src="https://cdn.tailwindcss.com"></script>
+
 </head>
 <body>
   <div id="root"></div>
@@ -16,7 +33,7 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // Lucide Icons (シンプル実装)
+    // Lucide Icons
     const Eye = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
     const EyeOff = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
     const Users = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
@@ -26,18 +43,6 @@
     const RotateCcw = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>;
 
     const OnlineDaifugoGame = () => {
-      // Firebase設定（あなたの設定を埋め込み済み）
-      const firebaseConfig = {
-        apiKey: "AIzaSyAphoRCf5yD80micou5WBvH8Y7MtBTK-uI",
-        authDomain: "my-daifugo-game.firebaseapp.com",
-        databaseURL: "https://my-daifugo-game-default-rtdb.firebaseio.com",
-        projectId: "my-daifugo-game",
-        storageBucket: "my-daifugo-game.firebasestorage.app",
-        messagingSenderId: "119119094779",
-        appId: "1:119119094779:web:701573efd01b1116b2e15e"
-      };
-
-      const [firebase, setFirebase] = useState(null);
       const [database, setDatabase] = useState(null);
       const [gameState, setGameState] = useState('lobby');
       const [roomId, setRoomId] = useState('');
@@ -52,6 +57,7 @@
       const [selectedCards, setSelectedCards] = useState([]);
       const [message, setMessage] = useState('');
       const [copied, setCopied] = useState(false);
+      const [listeners, setListeners] = useState([]);
 
       const SUITS = {
         hearts: { symbol: '♥', color: 'text-red-500' },
@@ -66,34 +72,44 @@
 
       // Firebase初期化
       useEffect(() => {
-        const initFirebase = async () => {
-          try {
-            const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-            const { getDatabase, ref, onValue, set, push, update, remove, get, off } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js');
-            
-            const app = initializeApp(firebaseConfig);
-            const db = getDatabase(app);
-            
-            setFirebase({ ref, onValue, set, push, update, remove, get, off });
-            setDatabase(db);
+        try {
+          // Firebase設定
+          const firebaseConfig = {
+            apiKey: "AIzaSyAphoRCf5yD80micou5WBvH8Y7MtBTK-uI",
+            authDomain: "my-daifugo-game.firebaseapp.com",
+            databaseURL: "https://my-daifugo-game-default-rtdb.firebaseio.com",
+            projectId: "my-daifugo-game",
+            storageBucket: "my-daifugo-game.firebasestorage.app",
+            messagingSenderId: "119119094779",
+            appId: "1:119119094779:web:701573efd01b1116b2e15e"
+          };
 
-            const id = 'player_' + Math.random().toString(36).substr(2, 9);
-            setPlayerId(id);
-          } catch (error) {
-            console.error('Firebase初期化エラー:', error);
-            setMessage('❌ Firebase接続に失敗しました');
+          // Firebase初期化
+          if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
           }
-        };
-        
-        initFirebase();
+          
+          const db = firebase.database();
+          setDatabase(db);
+
+          // プレイヤーID生成
+          const id = 'player_' + Math.random().toString(36).substr(2, 9);
+          setPlayerId(id);
+          
+          console.log('Firebase初期化成功');
+        } catch (error) {
+          console.error('Firebase初期化エラー:', error);
+          setMessage('❌ Firebase接続に失敗しました: ' + error.message);
+        }
       }, []);
 
       // ゲームルームをリスニング
       useEffect(() => {
-        if (!firebase || !database || !roomId) return;
+        if (!database || !roomId || !playerId) return;
 
-        const roomRef = firebase.ref(database, `rooms/${roomId}`);
-        const unsubscribe = firebase.onValue(roomRef, (snapshot) => {
+        const roomRef = database.ref('rooms/' + roomId);
+        
+        const listener = roomRef.on('value', (snapshot) => {
           const data = snapshot.val();
           if (data) {
             setGameData(data);
@@ -112,9 +128,9 @@
         });
 
         return () => {
-          firebase.off(roomRef);
+          roomRef.off('value', listener);
         };
-      }, [firebase, database, roomId, playerId]);
+      }, [database, roomId, playerId]);
 
       const createAndShuffleDeck = () => {
         const deck = [];
@@ -132,7 +148,7 @@
       };
 
       const createRoom = async () => {
-        if (!firebase || !database) {
+        if (!database) {
           setMessage('❌ Firebaseの初期化を待っています...');
           return;
         }
@@ -144,7 +160,7 @@
         }
 
         try {
-          const newRoomRef = firebase.push(firebase.ref(database, 'rooms'));
+          const newRoomRef = database.ref('rooms').push();
           const newRoomId = newRoomRef.key;
 
           const initialData = {
@@ -165,19 +181,20 @@
             createdAt: Date.now()
           };
 
-          await firebase.set(newRoomRef, initialData);
+          await newRoomRef.set(initialData);
           setRoomId(newRoomId);
           setPlayerName(name);
           setGameState('waiting');
           setMessage('');
+          console.log('ルーム作成成功:', newRoomId);
         } catch (error) {
           console.error('ルーム作成エラー:', error);
-          setMessage('❌ ルーム作成に失敗しました');
+          setMessage('❌ ルーム作成に失敗しました: ' + error.message);
         }
       };
 
       const joinRoom = async () => {
-        if (!firebase || !database) {
+        if (!database) {
           setMessage('❌ Firebaseの初期化を待っています...');
           return;
         }
@@ -196,8 +213,8 @@
         }
 
         try {
-          const roomRef = firebase.ref(database, `rooms/${roomIdInput}`);
-          const snapshot = await firebase.get(roomRef);
+          const roomRef = database.ref('rooms/' + roomIdInput);
+          const snapshot = await roomRef.once('value');
           
           if (!snapshot.exists()) {
             setMessage('❌ ルームが見つかりません');
@@ -223,22 +240,24 @@
             hasPassed: false
           };
 
-          await firebase.update(roomRef, {
-            [`players/${roomData.players.length}`]: newPlayer
-          });
+          const updates = {};
+          updates['players/' + roomData.players.length] = newPlayer;
+          
+          await roomRef.update(updates);
 
           setRoomId(roomIdInput);
           setPlayerName(name);
           setGameState('waiting');
           setMessage('');
+          console.log('ルーム参加成功');
         } catch (error) {
           console.error('ルーム参加エラー:', error);
-          setMessage('❌ ルーム参加に失敗しました');
+          setMessage('❌ ルーム参加に失敗しました: ' + error.message);
         }
       };
 
       const startGame = async () => {
-        if (!firebase || !database || !roomId || !gameData) return;
+        if (!database || !roomId || !gameData) return;
         
         if (gameData.players.length < 2) {
           setMessage('❌ 最低2人必要です');
@@ -260,8 +279,8 @@
 
           const updates = {};
           gameData.players.forEach((player, index) => {
-            updates[`players/${index}/hand`] = playerHands[index];
-            updates[`players/${index}/hasPassed`] = false;
+            updates['players/' + index + '/hand'] = playerHands[index];
+            updates['players/' + index + '/hasPassed'] = false;
           });
           updates['gameStarted'] = true;
           updates['currentPlayerIndex'] = 0;
@@ -270,11 +289,12 @@
           updates['passCount'] = 0;
           updates['winner'] = null;
 
-          await firebase.update(firebase.ref(database, `rooms/${roomId}`), updates);
+          await database.ref('rooms/' + roomId).update(updates);
           setMessage('');
+          console.log('ゲーム開始成功');
         } catch (error) {
           console.error('ゲーム開始エラー:', error);
-          setMessage('❌ ゲーム開始に失敗しました');
+          setMessage('❌ ゲーム開始に失敗しました: ' + error.message);
         }
       };
 
@@ -302,7 +322,7 @@
       };
 
       const playCards = async () => {
-        if (!canPlayCards() || !firebase || !database || !roomId) {
+        if (!canPlayCards() || !database || !roomId) {
           setMessage('❌ そのカードは出せません');
           return;
         }
@@ -313,8 +333,8 @@
           const newHand = myHand.filter(c => !selectedCards.includes(c.id));
 
           const updates = {};
-          updates[`players/${myPlayerIndex}/hand`] = newHand;
-          updates[`players/${myPlayerIndex}/hasPassed`] = false;
+          updates['players/' + myPlayerIndex + '/hand'] = newHand;
+          updates['players/' + myPlayerIndex + '/hasPassed'] = false;
           updates['fieldCards'] = playedCards;
           updates['lastPlayedBy'] = myPlayerIndex;
           updates['passCount'] = 0;
@@ -326,7 +346,7 @@
             updates['currentPlayerIndex'] = nextIndex;
           }
 
-          await firebase.update(firebase.ref(database, `rooms/${roomId}`), updates);
+          await database.ref('rooms/' + roomId).update(updates);
           setSelectedCards([]);
           setMessage('');
         } catch (error) {
@@ -336,14 +356,14 @@
       };
 
       const pass = async () => {
-        if (!firebase || !database || !roomId || !gameData) return;
+        if (!database || !roomId || !gameData) return;
         if (gameData.currentPlayerIndex !== myPlayerIndex) return;
 
         try {
           const newPassCount = gameData.passCount + 1;
           const updates = {};
           
-          updates[`players/${myPlayerIndex}/hasPassed`] = true;
+          updates['players/' + myPlayerIndex + '/hasPassed'] = true;
           updates['passCount'] = newPassCount;
 
           if (newPassCount === gameData.players.length - 1) {
@@ -352,7 +372,7 @@
             updates['passCount'] = 0;
             
             gameData.players.forEach((_, index) => {
-              updates[`players/${index}/hasPassed`] = false;
+              updates['players/' + index + '/hasPassed'] = false;
             });
           }
 
@@ -369,7 +389,7 @@
           
           updates['currentPlayerIndex'] = nextIndex;
 
-          await firebase.update(firebase.ref(database, `rooms/${roomId}`), updates);
+          await database.ref('rooms/' + roomId).update(updates);
           setMessage('');
         } catch (error) {
           console.error('パスエラー:', error);
@@ -378,10 +398,10 @@
       };
 
       const leaveRoom = async () => {
-        if (!firebase || !database || !roomId) return;
+        if (!database || !roomId) return;
         
         try {
-          await firebase.remove(firebase.ref(database, `rooms/${roomId}`));
+          await database.ref('rooms/' + roomId).remove();
           
           setRoomId('');
           setGameData(null);
@@ -458,7 +478,11 @@
               <div className="space-y-3 mb-6">
                 <button
                   onClick={createRoom}
-                  className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 active:scale-95 transition-all shadow-lg flex items-center justify-center gap-2"
+                  disabled={!database}
+                  className={`w-full py-4 rounded-xl text-lg font-bold transition-all shadow-lg flex items-center justify-center gap-2
+                    ${database 
+                      ? 'bg-green-600 text-white hover:bg-green-700 active:scale-95' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
                 >
                   <Users />
                   新しいルームを作成
@@ -483,7 +507,11 @@
 
                 <button
                   onClick={joinRoom}
-                  className="w-full bg-blue-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-blue-700 active:scale-95 transition-all shadow-lg"
+                  disabled={!database}
+                  className={`w-full py-4 rounded-xl text-lg font-bold transition-all shadow-lg
+                    ${database 
+                      ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
                 >
                   ルームに参加
                 </button>
@@ -498,6 +526,12 @@
                   <li>• 手札が0枚になったら勝利！</li>
                 </ul>
               </div>
+
+              {!database && (
+                <div className="mt-4 text-center text-sm text-gray-500">
+                  Firebase接続中...
+                </div>
+              )}
             </div>
           )}
 
@@ -584,7 +618,6 @@
           {/* プレイ画面 */}
           {gameState === 'playing' && gameData && myPlayer && (
             <div className="w-full max-w-md">
-              {/* ヘッダー */}
               <div className="bg-white rounded-2xl p-4 mb-4 shadow-lg">
                 <div className="flex justify-between items-center mb-2">
                   <div>
@@ -617,7 +650,6 @@
                 )}
               </div>
 
-              {/* 場のカード */}
               <div className="bg-white/90 rounded-xl p-4 mb-4 shadow-lg">
                 <h3 className="text-sm font-bold text-gray-700 mb-2">場のカード</h3>
                 <div className="min-h-24 flex items-center justify-center">
@@ -629,7 +661,6 @@
                 </div>
               </div>
 
-              {/* 手札 */}
               <div className="bg-white rounded-xl p-4 mb-4 shadow-lg">
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-sm font-bold text-gray-700">あなたの手札</h3>
@@ -660,7 +691,6 @@
                 )}
               </div>
 
-              {/* アクションボタン */}
               <div className="flex gap-2 mb-4">
                 <button
                   onClick={pass}
@@ -684,7 +714,6 @@
                 </button>
               </div>
 
-              {/* 他のプレイヤー情報 */}
               <div className="grid grid-cols-2 gap-2 mb-4">
                 {gameData.players.map((player, index) => (
                   player.id !== playerId && (
